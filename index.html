@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<<<<<<< HEAD
+    <title>아이디어 시각화 파트너 (Gemini + Mermaid)</title>
+    <!-- Tailwind CSS 로딩 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter 폰트 설정 -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .mermaid-container {
+            border: 2px solid #e2e8f0;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            background-color: #ffffff;
+            /* Mermaid 렌더링 영역 높이 확보 */
+            min-height: 400px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: auto; /* 다이어그램이 커질 경우 스크롤 가능하게 */
+        }
+        /* Mermaid 기본 설정을 위한 스타일 (필수) */
+        .mermaid {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+    <!-- Mermaid JS 라이브러리 로딩 -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+    <div class="max-w-4xl mx-auto p-6 md:p-10">
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-extrabold text-gray-900 mb-2">
+                아이디어 시각화 파트너 🤖
+            </h1>
+            <p class="text-lg text-gray-600">
+                프로젝트 구상을 한국어로 설명해 주시면, Gemini가 Mermaid 다이어그램으로 구조를 그려드립니다.
+            </p>
+        </header>
+
+        <!-- 입력 영역 -->
+        <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200 mb-8">
+            <label for="promptInput" class="block text-lg font-semibold text-gray-700 mb-3">프로젝트 구상 설명 (한국어)</label>
+            <textarea id="promptInput" rows="6" class="w-full p-4 border border-gray-300 rounded-lg resize-none focus:ring-blue-500 focus:border-blue-500 text-base" placeholder="예: '온라인 반려동물 커뮤니티 서비스를 만들고 싶습니다. 사용자는 가입해서 자신의 반려동물 정보를 등록하고, 사진을 올릴 수 있으며, 댓글로 다른 사용자와 소통할 수 있는 구조입니다.'"></textarea>
+            
+            <button onclick="processIdea()" id="generateButton" class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition duration-150 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                Mermaid 다이어그램 생성
+            </button>
+        </div>
+
+        <!-- 결과 영역 -->
+        <div id="resultsSection" class="hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">시각화 결과</h2>
+            
+            <!-- LLM 설명 영역 -->
+            <div class="bg-blue-50 p-4 rounded-lg mb-6 border border-blue-200">
+                <h3 class="font-semibold text-blue-800 mb-2">분석 내용</h3>
+                <p id="explanationOutput" class="text-gray-700 leading-relaxed"></p>
+            </div>
+
+            <!-- Mermaid 다이어그램 영역 -->
+            <h3 class="font-bold text-gray-700 mb-2">클래스/구조 다이어그램</h3>
+            <div id="mermaidDiagram" class="mermaid-container">
+                <pre id="mermaidSyntaxCode" class="text-sm text-gray-500 whitespace-pre-wrap">여기에 Mermaid 문법이 표시됩니다.</pre>
+            </div>
+            
+            <h3 class="font-bold text-gray-700 mt-6 mb-2">Mermaid 문법 (디버깅용)</h3>
+            <div class="bg-gray-800 p-4 rounded-lg overflow-x-auto">
+                <code id="mermaidSyntaxDisplay" class="text-xs text-green-300 whitespace-pre"></code>
+            </div>
+
+        </div>
+
+        <!-- 로딩 및 오류 메시지 -->
+        <div id="statusMessage" class="text-center p-4 rounded-lg hidden"></div>
+
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // --- Mermaid JS 초기화 ---
+            mermaid.initialize({
+                startOnLoad: false,
+                theme: 'default',
+                securityLevel: 'loose',
+                class: {
+                    defaultFill: '#fafafa',
+                    defaultStroke: '#6b7280',
+                    textFill: '#1f2937'
+                }
+            });
+
+            // --- Gemini API 호출 설정 ---
+            const apiKey = ""; 
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+            // LLM에게 역할과 출력 형식을 지정하는 시스템 명령어
+            const systemPrompt = "당신은 세계적인 소프트웨어 아키텍처 전문가입니다. 사용자가 제공한 한국어 프로젝트 구상 내용을 객체지향적 관점에서 분석하여 핵심 클래스, 속성, 메소드, 그리고 그 관계를 도출하세요. 응답은 반드시 아래 정의된 JSON 스키마를 따르며, Mermaid Class Diagram 문법을 사용하여 시각화 가능한 텍스트로 생성해야 합니다. * 클래스 속성/메소드 앞에는 접근 제한자 (+ public, - private, # protected)를 명시하세요. * 클래스 이름은 PascalCase를 사용하세요. * 관계(상속: --|>, 포함: --*) 등을 명시하여 다이어그램을 풍부하게 만드세요.";
+
+            // LLM이 반환해야 할 JSON 스키마 정의
+            const responseSchema = {
+                type: "OBJECT",
+                properties: {
+                    "diagramType": { "type": "STRING", "description": "생성된 다이어그램의 유형 (Mermaid Class Diagram)" },
+                    "mermaidSyntax": { "type": "STRING", "description": "렌더링할 Mermaid Class Diagram의 전체 문법 텍스트. 반드시 'classDiagram'으로 시작해야 합니다." },
+                    "explanation_ko": { "type": "STRING", "description": "생성된 다이어그램에 대한 간결한 한국어 설명." }
+                },
+                required: ["diagramType", "mermaidSyntax", "explanation_ko"]
+            };
+
+            // DOM 요소 캐시 (Null Check 이미 포함)
+            const elements = {
+                promptInput: document.getElementById('promptInput'),
+                resultsSection: document.getElementById('resultsSection'),
+                statusMessage: document.getElementById('statusMessage'),
+                generateButton: document.getElementById('generateButton'),
+                explanationOutput: document.getElementById('explanationOutput'),
+                container: document.getElementById('mermaidDiagram'),
+                syntaxCode: document.getElementById('mermaidSyntaxCode'),
+                syntaxDisplay: document.getElementById('mermaidSyntaxDisplay')
+            };
+
+            // 필수 요소가 하나라도 누락되면 프로세스를 중단합니다.
+            for (const key in elements) {
+                if (!elements[key]) {
+                    console.error(`CRITICAL ERROR: DOM 요소 '${key}'를 찾을 수 없습니다.`);
+                    elements.statusMessage.innerText = '페이지 구조 오류: 결과를 표시할 수 없습니다. (콘솔 확인 요망)';
+                    return;
+                }
+            }
+
+
+            /**
+             * 지수 백오프를 포함하여 API를 호출하는 함수
+             */
+            async function fetchWithBackoff(url, options, maxRetries = 5) {
+                for (let i = 0; i < maxRetries; i++) {
+                    try {
+                        const response = await fetch(url, options);
+                        if (response.status === 429 && i < maxRetries - 1) {
+                            const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                            console.warn(`API 호출 실패 (429). ${delay.toFixed(0)}ms 후 재시도...`);
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            continue;
+                        }
+                        if (!response.ok) {
+                            throw new Error(`API 호출 실패: ${response.statusText} (${response.status})`);
+                        }
+                        return response;
+                    } catch (error) {
+                        if (i === maxRetries - 1) {
+                            console.error("최대 재시도 횟수 초과:", error);
+                            throw error;
+                        }
+                        const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                        console.warn(`API 호출 실패: ${error.message}. ${delay.toFixed(0)}ms 후 재시도...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    }
+                }
+                throw new Error("API 호출에 지속적으로 실패했습니다.");
+            }
+
+            /**
+             * LLM 응답 텍스트에서 불필요한 마크다운 태그를 제거하여 순수 JSON만 추출합니다. (안정화 핵심)
+             */
+            function cleanJsonString(text) {
+                // 1. 앞뒤 공백 제거
+                text = text.trim();
+                // 2. LLM이 붙이는 마크다운 코드 블록(```json, ```) 제거
+                if (text.startsWith('```json')) {
+                    text = text.substring(7); // '```json' 제거
+                } else if (text.startsWith('```')) {
+                    text = text.substring(3); // '```' 제거
+                }
+                if (text.endsWith('```')) {
+                    text = text.substring(0, text.length - 3); // 끝의 '```' 제거
+                }
+                return text.trim();
+            }
+
+            /**
+             * 아이디어 구상을 처리하고 다이어그램을 생성합니다.
+             */
+            window.processIdea = async function() {
+                const prompt = elements.promptInput.value.trim();
+
+                if (!prompt) {
+                    displayStatus('warning', '구상 내용을 입력해 주세요.');
+                    return;
+                }
+
+                // UI 초기화 및 로딩 표시
+                elements.resultsSection.classList.add('hidden');
+                displayStatus('loading', 'Gemini 아키텍처 파트너가 구상을 분석하고 다이어그램을 생성 중입니다...');
+                elements.generateButton.disabled = true;
+
+                try {
+                    const payload = {
+                        contents: [{ parts: [{ text: prompt }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] },
+                        generationConfig: {
+                            responseMimeType: "application/json",
+                            responseSchema: responseSchema
+                        }
+                    };
+
+                    const options = {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    };
+
+                    const response = await fetchWithBackoff(apiUrl, options);
+                    const result = await response.json();
+
+                    const candidate = result.candidates?.[0];
+
+                    if (!candidate || !candidate.content?.parts?.[0]?.text) {
+                         throw new Error("API에서 유효한 응답을 받지 못했습니다. (후보 없음)");
+                    }
+
+                    // 1. JSON 문자열 정제 후 파싱 (가장 중요한 안정화 부분)
+                    const rawJsonText = candidate.content.parts[0].text;
+                    const cleanText = cleanJsonString(rawJsonText);
+                    
+                    let parsedJson;
+                    try {
+                        parsedJson = JSON.parse(cleanText);
+                    } catch (e) {
+                        console.error("JSON 파싱 실패 원본:", rawJsonText);
+                        throw new Error(`JSON 파싱 실패: LLM이 약속된 형식으로 반환하지 않았습니다. (원본: ${cleanText.substring(0, 100)}...)`);
+                    }
+
+                    const { mermaidSyntax, explanation_ko } = parsedJson;
+                    
+                    // 2. Mermaid 문법 유효성 및 존재 여부 확인
+                    if (!mermaidSyntax || !mermaidSyntax.trim().toLowerCase().startsWith('classdiagram')) {
+                        console.error("Mermaid 문법 누락/형식 오류:", mermaidSyntax);
+                        throw new Error("Mermaid 문법이 생성되었으나 'classDiagram'으로 시작하지 않거나 비어있습니다. 다시 시도해 주세요.");
+                    }
+
+                    let finalMermaidSyntax = mermaidSyntax.trim();
+                    
+                    // ** FIX: 'classDiagram' 키워드 뒤에 공백이 없는 경우 강제로 줄 바꿈 삽입 **
+                    const keyword = 'classDiagram';
+                    const lowerSyntax = finalMermaidSyntax.toLowerCase();
+                    if (lowerSyntax.startsWith(keyword) && lowerSyntax.length > keyword.length) {
+                        // 'classDiagram' 다음 문자가 공백이나 줄바꿈이 아닌지 확인
+                        const nextChar = finalMermaidSyntax[keyword.length];
+                        if (nextChar && !/\s/.test(nextChar)) {
+                            // 문법을 'classDiagram\n...' 형태로 수정
+                            finalMermaidSyntax = keyword + '\n' + finalMermaidSyntax.substring(keyword.length);
+                        }
+                    }
+
+                    // 3. UI 업데이트
+                    elements.explanationOutput.innerText = explanation_ko;
+
+                    // 4. Mermaid 다이어그램 렌더링
+                    
+                    // 이전 결과 및 디버깅 코드 제거
+                    elements.container.innerHTML = ''; 
+                    elements.syntaxDisplay.innerText = finalMermaidSyntax; // 수정된 문법 표시
+                    
+                    // Mermaid 렌더링을 위한 임시 div 생성
+                    const graphDiv = document.createElement('div');
+                    graphDiv.className = 'mermaid';
+                    elements.container.appendChild(graphDiv);
+
+                    // Mermaid 렌더링
+                    const renderId = 'diagram-' + Date.now();
+                    try {
+                        // 수정된 문법을 렌더링에 사용
+                        const { svg } = await mermaid.render(renderId, finalMermaidSyntax); 
+                        graphDiv.innerHTML = svg;
+                    } catch (renderError) {
+                        elements.container.innerHTML = `<p class="text-red-500 font-semibold">Mermaid 렌더링 실패: 생성된 문법에 오류가 있을 수 있습니다. 문법을 확인해 주세요.</p>`;
+                        console.error("Mermaid 렌더링 오류:", renderError);
+                        displayStatus('error', '다이어그램 렌더링 실패. (문법 오류 가능성)');
+                        elements.resultsSection.classList.remove('hidden');
+                        return; // 렌더링 실패 시 이후 코드는 실행하지 않음
+                    }
+                    
+                    // 최종 결과 표시
+                    elements.resultsSection.classList.remove('hidden');
+                    displayStatus('success', '다이어그램 생성이 완료되었습니다!');
+                    
+                } catch (error) {
+                    console.error("프로세스 오류:", error);
+                    displayStatus('error', `오류 발생: 다이어그램 생성에 실패했습니다. (${error.message})`);
+                    // 오류 시에도 UI를 초기화합니다.
+                    elements.container.innerHTML = `<p class="text-red-500">오류가 발생하여 다이어그램을 표시할 수 없습니다.</p>`;
+                    elements.explanationOutput.innerText = '오류로 인해 설명을 가져올 수 없습니다.';
+                    elements.syntaxDisplay.innerText = error.message;
+                    elements.resultsSection.classList.remove('hidden');
+
+                } finally {
+                    elements.generateButton.disabled = false;
+                }
+            }
+
+
+            /**
+             * 상태 메시지 표시 유틸리티
+             */
+            function displayStatus(type, message) {
+                const statusMessage = elements.statusMessage;
+                statusMessage.classList.remove('hidden', 'bg-red-100', 'bg-blue-100', 'bg-green-100', 'text-red-700', 'text-blue-700', 'text-green-700', 'bg-yellow-100', 'text-yellow-700');
+                statusMessage.innerText = message;
+                statusMessage.classList.add('p-4', 'rounded-lg', 'mt-4');
+
+                switch (type) {
+                    case 'loading':
+                        statusMessage.classList.add('bg-blue-100', 'text-blue-700', 'font-medium');
+                        break;
+                    case 'success':
+                        statusMessage.classList.add('bg-green-100', 'text-green-700', 'font-medium');
+                        break;
+                    case 'error':
+                        statusMessage.classList.add('bg-red-100', 'text-red-700', 'font-medium');
+                        break;
+                    case 'warning':
+                        statusMessage.classList.add('bg-yellow-100', 'text-yellow-700', 'font-medium');
+                        break;
+                }
+            }
+        }); // DOMContentLoaded 끝
+    </script>
+</body>
+</html>
+=======
+    <title>객체지향 클래스 구조 시각화 도구</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f7fafc; }
+        .uml-card {
+            min-width: 250px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+            transition: transform 0.2s;
+        }
+        .uml-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+        }
+        .uml-card-name {
+            font-weight: 700;
+            padding: 8px 12px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        .uml-card-section {
+            padding: 4px 12px;
+            font-size: 0.85rem;
+            border-bottom: 1px solid #edf2f7;
+        }
+        .uml-card-section:last-child {
+            border-bottom: none;
+        }
+        .uml-item {
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .uml-field { color: #2c5282; } /* Blue for Fields */
+        .uml-method { color: #005f6b; } /* Teal for Methods */
+    </style>
+</head>
+<body class="p-6 md:p-10">
+
+    <div class="max-w-7xl mx-auto">
+        <h1 class="text-4xl font-extrabold text-gray-900 mb-2">코드 구조 시각화 도구</h1>
+        <p class="text-gray-600 mb-6">Java 또는 C++ 코드를 입력하여 클래스/인터페이스의 UML-유사 다이어그램을 생성합니다.</p>
+
+        <!-- 입력 영역 -->
+        <div class="bg-white p-6 rounded-xl shadow-lg mb-8">
+            <label for="codeInput" class="block text-lg font-semibold text-gray-700 mb-3">객체지향 코드 입력 (Java/C++)</label>
+            <textarea id="codeInput" rows="15" class="w-full p-4 border border-gray-300 rounded-lg resize-none focus:ring-blue-500 focus:border-blue-500 text-sm font-mono" placeholder="여기에 C++ 또는 Java 클래스 코드를 붙여 넣으세요.">
+// Java 샘플 코드
+public interface Payable {
+    double getPaymentAmount();
+}
+
+public class Employee implements Payable {
+    private String name;
+    protected double baseSalary;
+    public static final String COMPANY = "TechCorp";
+
+    public Employee(String name, double baseSalary) {
+        this.name = name;
+        this.baseSalary = baseSalary;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public double getPaymentAmount() {
+        return baseSalary * 1.1; // 10% bonus
+    }
+}
+            </textarea>
+            <button onclick="generateDiagram()" class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition duration-150 ease-in-out shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                다이어그램 생성
+            </button>
+        </div>
+
+        <!-- 출력 영역 -->
+        <h2 class="text-3xl font-bold text-gray-800 mb-4">시각화 결과 (UML-유사 클래스 카드)</h2>
+        <div id="diagramOutput" class="flex flex-wrap gap-8 justify-center items-start p-6 bg-gray-100 rounded-xl min-h-64">
+            <p class="text-gray-500 text-center w-full mt-20" id="initialMessage">코드를 입력하고 '다이어그램 생성' 버튼을 눌러주세요.</p>
+        </div>
+
+    </div>
+
+    <script>
+        // 접근 제한자 매핑 (UML Notation)
+        const ACCESS_MAP = {
+            'public': '+',
+            'private': '-',
+            'protected': '#',
+            'static': 'S', // Static is often underlined, using 'S' for simplicity in this text-based display
+            'final': 'F' // Final/Constant is also represented, 'F' for simplicity
+        };
+
+        /**
+         * 코드에서 클래스 또는 인터페이스 구조를 파싱합니다.
+         * 단순화된 정규 표현식을 사용하여 기본적인 클래스명, 필드, 메소드만 추출합니다.
+         */
+        function parseCode(code) {
+            const definitions = [];
+            
+            // 1. 주석 제거 (단순화)
+            code = code.replace(/\/\/.*|\/\*[\s\S]*?\*\//g, '');
+
+            // 2. 클래스 또는 인터페이스 블록 찾기 (class/interface NAME { ... })
+            // 이 정규식은 단순화를 위해 중괄호 깊이 계산 없이 전체 블록을 문자열로 찾습니다.
+            const classRegex = /(?:public|private|protected)?\s+(class|interface)\s+([a-zA-Z0-9_]+)(?:\s+extends\s+([a-zA-Z0-9_]+))?(?:\s+implements\s+([a-zA-Z0-9_, ]+))?\s*\{([\s\S]*?)\n\}/g;
+            let match;
+
+            while ((match = classRegex.exec(code)) !== null) {
+                const definitionType = match[1]; // class or interface
+                const name = match[2];
+                const blockContent = match[5]; // Content inside the main {} block
+
+                const definition = {
+                    name: name,
+                    type: definitionType.charAt(0).toUpperCase() + definitionType.slice(1), // Class or Interface
+                    fields: [],
+                    methods: []
+                };
+
+                // 3. 필드 (속성) 추출 (Java/C++ 유사 구문)
+                // 예: private String name; 또는 int age;
+                const fieldRegex = /(?:public|private|protected)?(?:\s+static)?(?:\s+final)?\s+([a-zA-Z0-9_<>\[\]]+)\s+([a-zA-Z0-9_]+)\s*(?:=|;)/g;
+                let fieldMatch;
+                
+                // 필드 파싱을 위한 간단한 로직: 접근 제한자, 타입, 이름
+                const lines = blockContent.split(';').map(line => line.trim()).filter(line => line.length > 0 && !line.includes('('));
+
+                for (const line of lines) {
+                    const parts = line.split(/\s+/).filter(p => p.length > 0);
+                    if (parts.length >= 2) {
+                        const access = parts.find(p => ['public', 'private', 'protected'].includes(p)) || '';
+                        const isStatic = parts.includes('static') ? 'S' : '';
+                        const isFinal = parts.includes('final') ? 'F' : '';
+                        
+                        // 타입과 이름 찾기 (가장 단순한 접근)
+                        let type = parts[parts.length - 2];
+                        let fieldName = parts[parts.length - 1].replace(/[^a-zA-Z0-9_]/g, ''); // 마지막 단어를 이름으로 가정
+
+                        // 생성자나 메소드 선언이 아닌지 확인 (괄호가 없는지 확인)
+                        if (!line.includes('(') && !line.includes(')')) {
+                            // UML 표기법: [접근] [이름]: [타입]
+                            const symbol = ACCESS_MAP[access] || ACCESS_MAP['public']; // 기본은 public (+)
+                            const notation = `${symbol} ${fieldName}: ${type}`;
+                            definition.fields.push(notation);
+                        }
+                    }
+                }
+
+
+                // 4. 메소드 (연산) 추출
+                // 예: public double getPaymentAmount() { ... }
+                const methodRegex = /(?:public|private|protected)?(?:\s+static)?(?:\s+final)?\s+([a-zA-Z0-9_<>\[\]]+)\s+([a-zA-Z0-9_]+)\s*\((.*?)\)\s*(?:throws\s+[a-zA-Z0-9_]+)?\s*\{/g;
+                let methodMatch;
+
+                while ((methodMatch = methodRegex.exec(blockContent)) !== null) {
+                    const fullSignature = methodMatch[0].trim().replace('{', '').trim();
+                    const parts = fullSignature.split(/\s+/).filter(p => p.length > 0);
+
+                    // 접근 제한자 추출
+                    const access = parts.find(p => ['public', 'private', 'protected'].includes(p)) || '';
+                    const symbol = ACCESS_MAP[access] || ACCESS_MAP['public'];
+
+                    // 반환 타입과 메소드 이름 추출 (생성자 제외를 위해 이름과 클래스명이 다른 경우만 추출)
+                    if (methodMatch[2] !== name) {
+                        // UML 표기법: [접근] [이름]([파라미터]): [반환 타입]
+                        const returnType = methodMatch[1];
+                        const methodName = methodMatch[2];
+                        const parameters = methodMatch[3].trim().split(',').filter(p => p.length > 0).join(', '); // 파라미터 목록을 간단히 정리
+
+                        const notation = `${symbol} ${methodName}(${parameters}): ${returnType}`;
+                        definition.methods.push(notation);
+                    } else if (methodMatch[2] === name && definitionType === 'class') {
+                        // 생성자 (Constructors) - 반환 타입 없이 이름만
+                        const parameters = methodMatch[3].trim().split(',').filter(p => p.length > 0).join(', ');
+                        const notation = `${symbol} ${name}(${parameters})`; // 생성자는 반환 타입 없음
+                        definition.methods.push(notation);
+                    }
+                }
+                
+                definitions.push(definition);
+            }
+
+            return definitions;
+        }
+
+        /**
+         * 파싱된 데이터를 기반으로 UML-유사 카드 HTML을 생성합니다.
+         */
+        function renderDiagram(definitions) {
+            const output = document.getElementById('diagramOutput');
+            const initialMessage = document.getElementById('initialMessage');
+            output.innerHTML = '';
+            
+            if (definitions.length === 0) {
+                output.innerHTML = '<p class="text-gray-500 text-center w-full mt-20">클래스 또는 인터페이스 정의를 찾을 수 없습니다. 코드를 확인해 주세요.</p>';
+                return;
+            }
+
+            if (initialMessage) { initialMessage.style.display = 'none'; }
+            
+            definitions.forEach(def => {
+                const isInterface = def.type === 'Interface';
+                const cardColor = isInterface ? 'bg-yellow-50 border-yellow-300' : 'bg-white border-blue-300';
+                const typeText = isInterface ? '<<Interface>>' : def.type;
+
+                // 카드 HTML 구조
+                const cardHtml = `
+                    <div class="uml-card border-2 rounded-lg ${cardColor} flex flex-col overflow-hidden">
+                        <!-- Name Section -->
+                        <div class="uml-card-name text-gray-900 bg-gray-100">
+                            <div class="text-xs text-gray-500 font-normal">${typeText}</div>
+                            ${def.name}
+                        </div>
+                        
+                        <!-- Fields Section -->
+                        <div class="uml-card-section text-gray-700">
+                            <h4 class="font-bold mb-1 text-xs uppercase text-gray-500">Attributes</h4>
+                            ${def.fields.map(field => `<div class="uml-item uml-field">${field}</div>`).join('') || '<div class="text-gray-400 italic">No fields defined</div>'}
+                        </div>
+
+                        <!-- Methods Section -->
+                        <div class="uml-card-section text-gray-700">
+                            <h4 class="font-bold mb-1 text-xs uppercase text-gray-500">Methods</h4>
+                            ${def.methods.map(method => `<div class="uml-item uml-method">${method}</div>`).join('') || '<div class="text-gray-400 italic">No methods defined</div>'}
+                        </div>
+                    </div>
+                `;
+                output.innerHTML += cardHtml;
+            });
+        }
+
+        /**
+         * 메인 실행 함수
+         */
+        function generateDiagram() {
+            const code = document.getElementById('codeInput').value;
+            try {
+                const definitions = parseCode(code);
+                renderDiagram(definitions);
+            } catch (error) {
+                console.error("다이어그램 생성 중 오류 발생:", error);
+                const output = document.getElementById('diagramOutput');
+                output.innerHTML = `<p class="text-red-500 text-center w-full mt-20">오류가 발생했습니다: ${error.message}. 입력된 코드가 유효한지 확인해 주세요.</p>`;
+            }
+        }
+        
+        // 초기 로드 시 샘플 코드로 한번 실행
+        window.onload = function() {
+            generateDiagram();
+        };
+
+    </script>
+</body>
+</html>
+>>>>>>> cb54faa3e984b57bd251c0e53d8dc09665bcf1a0
